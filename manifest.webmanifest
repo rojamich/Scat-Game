@@ -1,0 +1,35 @@
+{
+  "_comment_what_is_this": "This file makes our website 'installable' as a Progressive Web App (PWA). When the browser sees it, it offers an 'Add to Home Screen' option, and once installed the app opens fullscreen with no browser bars — looking and feeling like a native app.",
+
+  "name": "Scategories",
+  "short_name": "Scategories",
+  "description": "A two-player Scattergories-style game for couples on the go.",
+
+  "_comment_start_url": "Where the app opens to. '.' means the same folder as the manifest.",
+  "start_url": ".",
+  "scope": ".",
+
+  "_comment_display": "'standalone' = no browser UI when launched from home screen.",
+  "display": "standalone",
+  "orientation": "portrait",
+
+  "_comment_colors": "background_color shows during the brief load before our HTML paints; theme_color colors the OS status bar around the app.",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+
+  "_comment_icons": "Inline SVG icons via data URI. Most modern Android browsers accept SVG icons in manifests. iOS prefers PNGs but will fall back gracefully — the app still installs, just with a generic icon. Replace these with proper PNGs later if you want a custom icon on iOS too.",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%23ff6b9d'/><text x='96' y='130' font-family='Arial' font-size='110' font-weight='bold' fill='white' text-anchor='middle'>S</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%23ff6b9d'/><text x='256' y='350' font-family='Arial' font-size='300' font-weight='bold' fill='white' text-anchor='middle'>S</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

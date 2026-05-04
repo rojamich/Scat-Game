@@ -67,3 +67,8 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Claude Code's internal scratch directory
+.claude/
+.firebase/
+node_modules/

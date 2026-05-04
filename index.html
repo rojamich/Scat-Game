@@ -1,89 +1,114 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Welcome to Firebase Hosting</title>
+<!--
+  index.html
+  ----------
+  This is the single page that the whole game lives on. The browser loads this
+  one file, and JavaScript swaps the contents of #app between screens (home,
+  lobby, round, judging, etc.) without ever navigating to a new page.
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/12.12.1/firebase-app-compat.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/12.12.1/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-firestore-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-functions-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-messaging-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-storage-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-analytics-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-remote-config-compat.js"></script>
-    <script defer src="/__/firebase/12.12.1/firebase-performance-compat.js"></script>
-    <!-- 
-      initialize the SDK after all desired features are loaded, set useEmulator to false
-      to avoid connecting the SDK to running emulators.
-    -->
-    <script defer src="/__/firebase/init.js?useEmulator=true"></script>
+  This pattern is called a "Single Page App" (SPA). It's perfect for a game
+  because nothing ever needs to fully reload — we just rerender what's in #app.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
 
-    <style media="screen">
-      body { background: #ECEFF1; color: rgba(0,0,0,0.87); font-family: Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; }
-      #message { background: white; max-width: 360px; margin: 100px auto 16px; padding: 32px 24px; border-radius: 3px; }
-      #message h2 { color: #ffa100; font-weight: bold; font-size: 16px; margin: 0 0 8px; }
-      #message h1 { font-size: 22px; font-weight: 300; color: rgba(0,0,0,0.6); margin: 0 0 16px;}
-      #message p { line-height: 140%; margin: 16px 0 24px; font-size: 14px; }
-      #message a { display: block; text-align: center; background: #039be5; text-transform: uppercase; text-decoration: none; color: white; padding: 16px; border-radius: 4px; }
-      #message, #message a { box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); }
-      #load { color: rgba(0,0,0,0.4); text-align: center; font-size: 13px; }
-      @media (max-width: 600px) {
-        body, #message { margin-top: 0; background: white; box-shadow: none; }
-        body { border-top: 16px solid #ffa100; }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="message">
-      <h2>Welcome</h2>
-      <h1>Firebase Hosting Setup Complete</h1>
-      <p>You're seeing this because you've successfully setup Firebase Hosting. Now it's time to go build something extraordinary!</p>
-      <a target="_blank" href="https://firebase.google.com/docs/hosting/">Open Hosting Documentation</a>
+  <!--
+    The viewport meta tag tells mobile browsers "render this at the phone's real
+    width, don't pretend to be a desktop." Without this, everything looks tiny.
+    `viewport-fit=cover` lets us draw under the iPhone notch / home indicator.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <!--
+    `theme-color` colors the phone's status bar / browser chrome to match the app.
+    `apple-mobile-web-app-capable` lets iOS treat the page like a real app when
+    installed to the home screen (no Safari address bar).
+  -->
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Scategories">
+
+  <title>Scategories</title>
+
+  <!-- Tells the browser this site can be installed as a PWA (Progressive Web App). -->
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!--
+    A tiny inline SVG favicon (a die showing letters). Inline = no extra HTTP
+    request. SVG = looks crisp at any size. The data URI is just a way to embed
+    a file inside a URL.
+  -->
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23ff6b9d'/><text x='50' y='70' font-family='Arial' font-size='60' font-weight='bold' fill='white' text-anchor='middle'>S</text></svg>">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!--
+    All screens are rendered by JavaScript into this div. We start with a small
+    splash so users see something instantly while scripts load (especially on a
+    weak mobile connection).
+  -->
+  <div id="app">
+    <div class="splash">
+      <div class="splash-logo">S</div>
+      <div class="splash-text">Loading…</div>
     </div>
-    <p id="load">Firebase SDK Loading&hellip;</p>
+  </div>
 
-    <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        const loadEl = document.querySelector('#load');
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
-        // // The Firebase SDK is initialized and available here!
-        //
-        // firebase.auth().onAuthStateChanged(user => { });
-        // firebase.database().ref('/path/to/ref').on('value', snapshot => { });
-        // firebase.firestore().doc('/foo/bar').get().then(() => { });
-        // firebase.functions().httpsCallable('yourFunction')().then(() => { });
-        // firebase.messaging().requestPermission().then(() => { });
-        // firebase.storage().ref('/path/to/ref').getDownloadURL().then(() => { });
-        // firebase.analytics(); // call to activate
-        // firebase.analytics().logEvent('tutorial_completed');
-        // firebase.performance(); // call to activate
-        //
-        // // 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
+  <!--
+    A live region for accessibility / status messages. Anything we put in here
+    is read aloud by screen readers. We also use it for transient toasts.
+  -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-        try {
-          let app = firebase.app();
-          let features = [
-            'auth', 
-            'database', 
-            'firestore',
-            'functions',
-            'messaging', 
-            'storage', 
-            'analytics', 
-            'remoteConfig',
-            'performance',
-          ].filter(feature => typeof app[feature] === 'function');
-          loadEl.textContent = `Firebase SDK loaded with ${features.join(', ')}`;
-        } catch (e) {
-          console.error(e);
-          loadEl.textContent = 'Error loading the Firebase SDK, check the console.';
-        }
+  <!--
+    Firebase SDKs. We use the "compat" build because it exposes a global
+    `firebase` object, which is much simpler to wire into plain script tags
+    than the modular ESM build. Loaded from Google's CDN so we don't ship them.
+
+    These are loaded BEFORE our scripts so `firebase` is defined when sync.js
+    decides whether to use it. They're tiny (~100KB gzipped together) and
+    cached by the browser after first load.
+
+    If the user's connection is offline AND firebase config isn't set, the app
+    still works in same-device mode — these scripts just fail to load silently.
+  -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <!--
+    Their personal Firebase project config. Starts as `null`, which means the
+    app runs in same-device mode. See README.md to set this up in ~5 minutes.
+  -->
+  <script src="firebase-config.js"></script>
+
+  <!--
+    Our game code. Order matters because each file uses things defined in the
+    earlier ones. We attach everything to a single global `Game` namespace so
+    the files can talk to each other without a build tool / module system.
+  -->
+  <script src="js/categories.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/judging.js"></script>
+  <script src="js/app.js"></script>
+
+  <!--
+    Register the service worker. A service worker is a tiny background script
+    that lets the page work offline by caching itself. We don't await it
+    (`.catch(() => {})` swallows errors) so the game still loads even if SW
+    registration fails (e.g. in private browsing).
+  -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
       });
-    </script>
-  </body>
+    }
+  </script>
+</body>
 </html>

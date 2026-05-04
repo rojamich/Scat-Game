@@ -1,0 +1,580 @@
+/*
+  styles.css
+  ----------
+  All visual styling for the app. Mobile-first: we design for phones, then add
+  small adjustments for larger screens at the bottom.
+
+  CSS variables (the `--name` things) let us define colors once at the top, then
+  reuse them everywhere. To switch themes, we just redefine the variables.
+*/
+
+/* ============================================================================
+   THEME VARIABLES
+   ============================================================================ */
+
+/*
+  `:root` is the document's top-level element. Variables defined here are
+  visible to every element below. Default theme is dark since we'll often play
+  in bed at night.
+*/
+:root {
+  --bg: #1a1a2e;
+  --bg-elevated: #25253d;
+  --bg-input: #2f2f4a;
+  --text: #f0f0f5;
+  --text-dim: #a0a0b8;
+  --accent: #ff6b9d;          /* pink — the brand color */
+  --accent-strong: #ff4785;
+  --good: #4ade80;             /* green for success */
+  --bad: #f87171;              /* red for errors / running out of time */
+  --warn: #fbbf24;             /* amber for warnings */
+  --border: #3a3a5c;
+  --shadow: 0 4px 20px rgba(0,0,0,0.3);
+  --radius: 12px;
+}
+
+/* If the user toggles light mode, redefine the variables. */
+body.light-mode {
+  --bg: #f5f5fa;
+  --bg-elevated: #ffffff;
+  --bg-input: #f0f0f5;
+  --text: #1a1a2e;
+  --text-dim: #6b6b80;
+  --accent: #e64983;
+  --accent-strong: #c9326e;
+  --border: #d8d8e0;
+  --shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+/* ============================================================================
+   RESET & BASE
+   ============================================================================ */
+
+/*
+  A tiny reset. Browsers each have their own default margins/padding/sizing
+  and we want a known starting point. `box-sizing: border-box` makes width
+  include padding, which is what every developer expects.
+*/
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  /*
+    `overscroll-behavior: none` stops the bouncy "rubber band" effect when the
+    user scrolls past the top/bottom on iOS — feels more app-like.
+  */
+  overscroll-behavior: none;
+  /*
+    `padding-top: env(safe-area-inset-top)` keeps content out from under the
+    iPhone notch when installed as a PWA.
+  */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================================================
+   SHARED COMPONENTS
+   ============================================================================ */
+
+/* The splash screen shown before scripts have loaded. */
+.splash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.splash-logo {
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
+  background: var(--accent);
+  color: white;
+  font-size: 56px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+}
+.splash-text {
+  color: var(--text-dim);
+}
+
+/* The main "screen" container — every screen wraps its contents in this. */
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  max-width: 600px;
+  width: 100%;
+  margin: 0 auto;
+  gap: 12px;
+}
+
+/* A page header: title on the left, optional actions on the right. */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 16px;
+  gap: 12px;
+}
+.header h1 {
+  font-size: 24px;
+  font-weight: 700;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Buttons. The default look. */
+.btn {
+  padding: 14px 20px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  /*
+    `min-height: 48px` is a touch-target rule of thumb — fingers are bigger
+    than mouse cursors so any tappable thing should be at least ~44-48px tall.
+  */
+  min-height: 48px;
+  transition: transform 0.05s ease, background 0.15s ease;
+  text-align: center;
+  /* Reset some browser defaults */
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-strong); }
+
+.btn-danger { background: var(--bad); color: white; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); }
+.btn-small { padding: 8px 12px; font-size: 14px; min-height: 36px; }
+.btn-icon {
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  background: var(--bg-elevated);
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+}
+.btn-row .btn { flex: 1; }
+
+/* Card: a grouped block of content with a slight elevation. */
+.card {
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* Form inputs. */
+.input, .select {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 16px;     /* 16px on iOS = no zoom-in on focus */
+  font-family: inherit;
+}
+.input:focus, .select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+label {
+  display: block;
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.field { margin-bottom: 12px; }
+
+/* A toggle switch (for booleans). */
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.toggle-label { font-weight: 500; }
+.toggle-switch {
+  width: 44px;
+  height: 26px;
+  background: var(--border);
+  border-radius: 13px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: left 0.2s;
+}
+.toggle.on .toggle-switch { background: var(--accent); }
+.toggle.on .toggle-switch::after { left: 21px; }
+
+/* Toast notifications (transient messages). */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--bg-elevated);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 100px;
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  max-width: 90%;
+  text-align: center;
+  z-index: 100;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ============================================================================
+   HOME SCREEN
+   ============================================================================ */
+
+.home-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 32px 0;
+  gap: 8px;
+}
+.home-logo-mark {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  background: var(--accent);
+  color: white;
+  font-size: 60px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+}
+.home-logo-name { font-size: 28px; font-weight: 700; }
+.home-logo-tag { color: var(--text-dim); font-size: 14px; }
+
+/* ============================================================================
+   LOBBY SCREEN
+   ============================================================================ */
+
+.room-code {
+  font-family: 'Courier New', monospace;
+  font-size: 36px;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 6px;
+  padding: 16px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  color: var(--accent);
+}
+
+.players-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+}
+.player-name { font-weight: 500; }
+.player-name.you::after { content: ' (you)'; color: var(--text-dim); font-weight: normal; }
+.player-status {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+}
+.player-status.ready { background: var(--good); color: #0a4520; }
+.player-status.submitted { background: var(--accent); color: white; }
+
+/* ============================================================================
+   ROUND SCREEN
+   ============================================================================ */
+
+.round-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: var(--shadow);
+}
+.round-letter {
+  font-size: 48px;
+  font-weight: bold;
+  color: var(--accent);
+  font-family: 'Georgia', serif;
+  line-height: 1;
+}
+.round-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.round-timer {
+  font-size: 28px;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums; /* keeps numbers from jiggling as they tick */
+}
+.round-timer.warn { color: var(--warn); }
+.round-timer.danger { color: var(--bad); animation: pulse 0.5s ease-in-out infinite alternate; }
+.round-info { font-size: 12px; color: var(--text-dim); }
+
+@keyframes pulse {
+  from { opacity: 1; }
+  to { opacity: 0.5; }
+}
+
+.categories {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.category {
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.category-name {
+  font-size: 14px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.category-input {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 18px;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+  width: 100%;
+  font-family: inherit;
+}
+.category-input:focus {
+  outline: none;
+  border-bottom-color: var(--accent);
+}
+.category-input::placeholder { color: var(--text-dim); opacity: 0.4; }
+
+/* ============================================================================
+   JUDGING / RESULTS SCREEN
+   ============================================================================ */
+
+.judge-row {
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 8px;
+}
+.judge-category {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.judge-answers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.judge-answer {
+  padding: 10px;
+  background: var(--bg-input);
+  border-radius: 8px;
+  position: relative;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+  /* Long-press is for "mark invalid" — disable text selection so the press
+     doesn't trigger the OS selection UI instead. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.judge-answer.winner {
+  border-color: var(--good);
+  background: rgba(74, 222, 128, 0.1);
+}
+.judge-answer.invalid {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.judge-answer.duplicate {
+  border-color: var(--warn);
+}
+.judge-answer-name {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.judge-answer-text {
+  font-size: 16px;
+  word-break: break-word;
+  min-height: 22px;
+}
+.judge-answer.empty .judge-answer-text { color: var(--text-dim); font-style: italic; }
+.judge-answer-tag {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  font-size: 16px;
+}
+
+.score-summary {
+  display: flex;
+  justify-content: space-around;
+  padding: 16px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+.score-pile {
+  text-align: center;
+}
+.score-pile-name { font-size: 14px; color: var(--text-dim); }
+.score-pile-num { font-size: 36px; font-weight: bold; color: var(--accent); }
+.score-pile-total { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+/* ============================================================================
+   PROMPT TEXTAREA (for copying to chatbot)
+   ============================================================================ */
+
+.prompt-area {
+  width: 100%;
+  min-height: 200px;
+  padding: 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+/* ============================================================================
+   HISTORY
+   ============================================================================ */
+
+.history-row {
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.history-row-letter {
+  font-size: 24px;
+  font-weight: bold;
+  color: var(--accent);
+  font-family: Georgia, serif;
+  width: 40px;
+  text-align: center;
+}
+.history-row-meta { flex: 1; padding: 0 12px; }
+.history-row-date { font-size: 12px; color: var(--text-dim); }
+.history-row-score { font-size: 14px; font-weight: 600; }
+
+/* ============================================================================
+   UTILS
+   ============================================================================ */
+
+.text-center { text-align: center; }
+.text-dim { color: var(--text-dim); }
+.text-small { font-size: 13px; }
+.text-bold { font-weight: 600; }
+.mt-8 { margin-top: 8px; }
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-16 { margin-bottom: 16px; }
+.spacer { flex: 1; }
+.hidden { display: none !important; }
+
+/* Larger screens (tablet / desktop) — center content with comfortable max width. */
+@media (min-width: 700px) {
+  .screen { padding: 24px; }
+}
