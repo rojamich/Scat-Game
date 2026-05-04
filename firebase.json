@@ -3,8 +3,14 @@
     "public": ".",
     "ignore": [
       "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
+      ".firebase/**",
+      ".git/**",
+      ".gitignore",
+      ".gitattributes",
+      ".claude/**",
+      "node_modules/**",
+      "README.md",
+      "**/*.md"
     ]
   }
 }
