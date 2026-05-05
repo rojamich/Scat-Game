@@ -211,6 +211,56 @@ Game.persistRoom = function (immediate = false) {
 };
 
 /* ============================================================================
+   updateRoomFields: write specific fields without overwriting the whole room
+   ============================================================================
+   `persistRoom` writes the entire room document. That works for solo edits but
+   creates a race when BOTH players make rapid changes — the slower write wins
+   and clobbers the faster player's changes (e.g. judging on two phones at once).
+
+   `updateRoomFields` writes only the specified field paths. Both phones can
+   touch different parts of the same document concurrently and neither loses
+   their work. We use this for judging taps — those are the prime
+   "two-player-edit-the-same-doc" scenario.
+
+   `updates` is an object whose keys are dot-paths into the room document
+   (e.g. `'round.scoring.decisions.0.winners.p_abc'`) and whose values are the
+   new values for those fields.
+*/
+Game.updateRoomFields = function (updates) {
+  if (!Game.state.room || !updates) return;
+
+  if (Game.isSameDevice()) {
+    // Apply locally and persist to localStorage. No network involved.
+    Object.entries(updates).forEach(([path, value]) => setByPath(Game.state.room, path, value));
+    saveSameDeviceRoom();
+    return;
+  }
+
+  if (!firestoreDb) return;
+
+  // Apply locally for instant UI feedback (so we don't wait for the round-trip).
+  Object.entries(updates).forEach(([path, value]) => setByPath(Game.state.room, path, value));
+
+  // And push to Firestore. Firestore's `update()` treats dot-paths as nested
+  // field paths, so siblings are not disturbed.
+  firestoreDb.collection('rooms').doc(Game.state.room.code).update(updates)
+    .catch((err) => console.warn('updateRoomFields failed', err));
+};
+
+// Tiny helper: walk a dot-path on `obj` and set the leaf. Creates intermediate
+// objects as needed. Used by updateRoomFields above.
+function setByPath(obj, path, value) {
+  const parts = path.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = {};
+    cur = cur[k];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+/* ============================================================================
    ROOM WATCHER: subscribe to Firestore updates for this room
    ============================================================================ */
 
@@ -229,11 +279,24 @@ function attachRoomWatcher(code) {
       }
       const incoming = snap.data();
 
+      // Detect a "new round started" event by comparing the round's startedAt
+      // timestamp with what we currently have. If they differ, the host just
+      // kicked off a fresh round and we MUST drop our cached `myAnswers` from
+      // the previous round — otherwise stale text bleeds into the new inputs.
+      const oldStartedAt =
+        Game.state.room && Game.state.room.round && Game.state.room.round.startedAt;
+      const newStartedAt = incoming.round && incoming.round.startedAt;
+      const isNewRound = newStartedAt && newStartedAt !== oldStartedAt;
+      if (isNewRound) {
+        Game.state.myAnswers = {};
+      }
+
       // We need to be careful here: the local copy of `myAnswers` for the
       // current round is what the user is typing. If we blindly overwrite
       // the room state from Firestore, our typing gets clobbered. So we
       // merge: take the incoming room as the new truth, BUT preserve our
-      // own pending answers from `state.myAnswers`.
+      // own pending answers from `state.myAnswers` (only if they're for THIS
+      // round — see `isNewRound` clearing above).
       Game.state.room = incoming;
       const myId = Game.state.myPlayerId;
       if (

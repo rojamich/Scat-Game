@@ -154,8 +154,10 @@ function autoDeriveWinners() {
       players.forEach((p) => { dec.winners[p.id] = (p === validPlayers[0]); });
       return;
     }
-    // All filled and valid → tie by default (both win 1pt).
-    players.forEach((p) => { dec.winners[p.id] = validPlayers.includes(p); });
+    // Multiple filled-and-valid answers — DON'T auto-pick a tie. The user
+    // wants a single winner per category, so the chatbot (or them) decides.
+    // Leave winners blank so they have to tap one.
+    players.forEach((p) => { dec.winners[p.id] = false; });
   });
 }
 
@@ -165,18 +167,38 @@ function autoDeriveWinners() {
 
 Game.toggleAnswerWinner = function (catIdx, playerId) {
   const dec = getDecision(catIdx);
-  // Toggle this player's winner flag.
-  dec.winners[playerId] = !dec.winners[playerId];
-  Game.persistRoom();
+  const wasWinner = !!dec.winners[playerId];
+
+  // Build a per-field update for Firestore. Single-winner rule: clear all
+  // players for this category, then set the new one if we weren't toggling
+  // an already-winner off.
+  //
+  // Using updateRoomFields (per-field) instead of persistRoom (whole-doc)
+  // means concurrent taps from two phones on different categories can BOTH
+  // succeed — neither player's pick clobbers the other's.
+  const updates = {};
+  const allPlayerIds = Game.state.room.players.map((p) => p.id);
+  allPlayerIds.forEach((pid) => {
+    updates[`round.scoring.decisions.${catIdx}.winners.${pid}`] = false;
+  });
+  if (!wasWinner) {
+    updates[`round.scoring.decisions.${catIdx}.winners.${playerId}`] = true;
+  }
+  Game.updateRoomFields(updates);
   Game.render();
 };
 
 Game.toggleAnswerInvalid = function (catIdx, playerId) {
   const dec = getDecision(catIdx);
-  dec.invalid[playerId] = !dec.invalid[playerId];
-  // If we just marked invalid, also clear winner.
-  if (dec.invalid[playerId]) dec.winners[playerId] = false;
-  Game.persistRoom();
+  const newInvalid = !dec.invalid[playerId];
+  const updates = {
+    [`round.scoring.decisions.${catIdx}.invalid.${playerId}`]: newInvalid,
+  };
+  // If we just marked invalid, also clear that player's winner flag.
+  if (newInvalid) {
+    updates[`round.scoring.decisions.${catIdx}.winners.${playerId}`] = false;
+  }
+  Game.updateRoomFields(updates);
   Game.render();
 };
 

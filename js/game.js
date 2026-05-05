@@ -346,21 +346,55 @@ document.addEventListener('visibilitychange', async () => {
    ============================================================================ */
 
 let audioCtx = null;
-function beep(freq = 660, durationMs = 150) {
+
+// A small per-tick beep — used during the 10-second countdown.
+function beep(freq = 660, durationMs = 150, volume = 0.5) {
   if (!Game.state.prefs.soundEnabled) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.frequency.value = freq;
-    osc.type = 'sine';
+    osc.type = 'square';   // square is louder/punchier than sine
     osc.connect(gain);
     gain.connect(audioCtx.destination);
-    gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.2, audioCtx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + durationMs / 1000);
-    osc.start();
-    osc.stop(audioCtx.currentTime + durationMs / 1000 + 0.05);
+    const t = audioCtx.currentTime;
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.exponentialRampToValueAtTime(volume, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + durationMs / 1000);
+    osc.start(t);
+    osc.stop(t + durationMs / 1000 + 0.05);
+  } catch (e) {}
+}
+
+// The end-of-round buzzer — more dramatic. Two stacked oscillators (a low
+// drone + a saw harmonic), 1 second long, that descend in pitch. Loud enough
+// to grab attention even with a phone face-down on a table.
+function endBuzzer() {
+  if (!Game.state.prefs.soundEnabled) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+
+    // Two oscillators, each through its own gain envelope.
+    [
+      { type: 'sawtooth', start: 220, end: 110, vol: 0.35 },
+      { type: 'square',   start: 440, end: 220, vol: 0.25 },
+    ].forEach((cfg) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = cfg.type;
+      osc.frequency.setValueAtTime(cfg.start, t);
+      osc.frequency.exponentialRampToValueAtTime(cfg.end, t + 1.0);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.exponentialRampToValueAtTime(cfg.vol, t + 0.02);
+      gain.gain.setValueAtTime(cfg.vol, t + 0.85);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+      osc.start(t);
+      osc.stop(t + 1.05);
+    });
   } catch (e) {}
 }
 
@@ -409,9 +443,18 @@ Game.screens.round = {
       ? room.players.find((p) => p.id === r.currentTurnId)
       : Game.me();
     const opponent = room.players.find((p) => p.id !== activePlayer.id);
+
+    // Read answers ONLY from r.answers[playerId]. Each keystroke writes there
+    // synchronously, and the snapshot listener (sync.js) merges in any pending
+    // local typing that hadn't persisted yet — so this is always current and
+    // never bleeds in stale data from a previous round.
     const myAnswers = sameDevice
       ? (r.answers[r.currentTurnId] || {})
-      : (r.answers[Game.state.myPlayerId] || Game.state.myAnswers || {});
+      : (r.answers[Game.state.myPlayerId] || {});
+
+    // In multi-device, once I've submitted (or the timer expired), I should
+    // not be able to keep editing my answers.
+    const iSubmitted = !sameDevice && r.submittedBy.includes(Game.state.myPlayerId);
 
     return `
       <div class="screen">
@@ -429,16 +472,25 @@ Game.screens.round = {
           </div>
         </div>
 
-        <div class="btn-row">
-          ${room.settings.pauseAllowed ? `
-            <button class="btn btn-small btn-ghost" id="pauseBtn">
-              ${r.pausedAt ? '▶ Resume' : '⏸ Pause'}
+        ${iSubmitted ? `
+          <div class="card text-center" style="background:var(--accent); color:white;">
+            <div class="text-bold">✓ Submitted — waiting for ${Game.esc(opponent ? opponent.name : 'partner')}…</div>
+            <div class="text-small mt-8" style="opacity:0.85;">
+              You'll jump to scoring as soon as they're done or the timer runs out.
+            </div>
+          </div>
+        ` : `
+          <div class="btn-row">
+            ${room.settings.pauseAllowed ? `
+              <button class="btn btn-small btn-ghost" id="pauseBtn">
+                ${r.pausedAt ? '▶ Resume' : '⏸ Pause'}
+              </button>
+            ` : '<div class="spacer"></div>'}
+            <button class="btn btn-small" id="submitBtn">
+              ${sameDevice ? "✓ I'm done" : '✓ Submit early'}
             </button>
-          ` : '<div class="spacer"></div>'}
-          <button class="btn btn-small" id="submitBtn">
-            ${sameDevice ? "✓ I'm done" : '✓ Submit early'}
-          </button>
-        </div>
+          </div>
+        `}
 
         <div class="categories">
           ${r.categories.map((cat, idx) => `
@@ -447,14 +499,17 @@ Game.screens.round = {
               <input class="category-input" type="text" autocomplete="off"
                      data-cat-idx="${idx}"
                      placeholder="Starts with ${Game.esc(r.letter)}…"
-                     value="${Game.esc(myAnswers[idx] || '')}">
+                     value="${Game.esc(myAnswers[idx] || '')}"
+                     ${iSubmitted ? 'readonly' : ''}>
             </div>
           `).join('')}
         </div>
 
-        <div class="text-small text-dim text-center mt-16">
-          Answers save automatically.
-        </div>
+        ${!iSubmitted ? `
+          <div class="text-small text-dim text-center mt-16">
+            Answers save automatically.
+          </div>
+        ` : ''}
       </div>
     `;
   },
@@ -476,27 +531,38 @@ Game.screens.round = {
       return;
     }
 
-    // Wire up answer inputs. Each input fires `recordAnswer` on every keystroke.
-    document.querySelectorAll('.category-input').forEach((input) => {
-      input.addEventListener('input', (e) => {
-        const idx = Number(e.target.dataset.catIdx);
-        Game.recordAnswer(idx, e.target.value);
-      });
-    });
+    // If I've already submitted (multi-device), inputs are read-only and the
+    // submit button isn't rendered. Just kick the ticker off so the timer
+    // keeps showing.
+    const iSubmitted =
+      !Game.isSameDevice() && r.submittedBy.includes(Game.state.myPlayerId);
 
-    const pauseBtn = document.getElementById('pauseBtn');
-    if (pauseBtn) {
-      pauseBtn.addEventListener('click', () => {
-        if (Game.state.room.round.pausedAt) Game.resumeRound();
-        else Game.pauseRound();
-        Game.goto('round', true);   // force full re-render to flip the button label
+    if (!iSubmitted) {
+      // Wire up answer inputs. Each input fires `recordAnswer` on every keystroke.
+      document.querySelectorAll('.category-input').forEach((input) => {
+        input.addEventListener('input', (e) => {
+          const idx = Number(e.target.dataset.catIdx);
+          Game.recordAnswer(idx, e.target.value);
+        });
       });
+
+      const pauseBtn = document.getElementById('pauseBtn');
+      if (pauseBtn) {
+        pauseBtn.addEventListener('click', () => {
+          if (Game.state.room.round.pausedAt) Game.resumeRound();
+          else Game.pauseRound();
+          Game.goto('round', true);   // force full re-render to flip the button label
+        });
+      }
+
+      const submitBtn = document.getElementById('submitBtn');
+      if (submitBtn) {
+        submitBtn.addEventListener('click', () => {
+          if (!confirm('Submit your answers for this round?')) return;
+          Game.submitMyAnswers();
+        });
+      }
     }
-
-    document.getElementById('submitBtn').addEventListener('click', () => {
-      if (!confirm('Submit your answers for this round?')) return;
-      Game.submitMyAnswers();
-    });
 
     startTicker();
   },
@@ -506,20 +572,34 @@ Game.screens.round = {
   // the ticker is cleared in render() before swapping HTML — see startTicker.
   update() {
     // Called when state changes but we're still on this screen.
-    // Update the opponent status without touching the inputs.
     const room = Game.state.room;
     const r = room && room.round;
     if (!r) return;
+
+    // If we just got into the scoring phase, navigate to judge.
+    if (r.scoring) {
+      Game.goto('judge');
+      return;
+    }
+
     if (Game.isSameDevice()) return;
+
+    // Detect a transition we care about: my own submit state changed (early
+    // submit went through, or timer expired and added me to submittedBy).
+    // In those cases we need a FULL re-render to swap the input area for the
+    // "submitted, waiting" banner and disable inputs.
+    const iSubmitted = r.submittedBy.includes(Game.state.myPlayerId);
+    const renderedAsSubmitted = document.querySelector('.category-input[readonly]') != null;
+    if (iSubmitted !== renderedAsSubmitted) {
+      Game.goto('round', true);
+      return;
+    }
+
+    // Otherwise: just update the opponent status text without touching inputs
+    // (so typing isn't disrupted).
     const opponent = room.players.find((p) => p.id !== Game.state.myPlayerId);
     const el = document.getElementById('opponentStatus');
     if (el) el.textContent = opponentStatusText(r, opponent);
-
-    // If we just got into the scoring phase via the other player submitting,
-    // navigate to judge.
-    if (r.scoring) {
-      Game.goto('judge');
-    }
   },
 };
 
@@ -556,7 +636,8 @@ function startTicker() {
     if (remaining === 0 && !r.pausedAt) {
       clearInterval(tickerHandle);
       tickerHandle = null;
-      beep(440, 600);
+      endBuzzer();
+      Game.vibrate([200, 100, 200, 100, 400]);
       checkTimerExpiry();
     }
   }, 250);

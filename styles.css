@@ -410,6 +410,13 @@ label {
   background: var(--bg-elevated);
   border-radius: var(--radius);
   padding: 12px 14px;
+  /* When the input gets focused, the browser auto-scrolls it into view. With
+     a sticky round-header sitting above (≈80px), naive scrolling would put
+     the input UNDER the header. `scroll-margin-top` tells the browser to
+     leave that much room above the input when scrolling — so the focused
+     field stays visible instead of getting hidden / pushed offscreen. */
+  scroll-margin-top: 100px;
+  scroll-margin-bottom: 20px;
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -398,12 +398,24 @@ Game.screens.lobby = {
         <div>
           <label>Players (${r.players.length})</label>
           <div class="players-list">
-            ${r.players.map((p) => `
-              <div class="player-row">
-                <span class="player-name ${p.id === Game.state.myPlayerId ? 'you' : ''}">${Game.esc(p.name)}</span>
-                <span class="player-status ${p.online ? 'ready' : ''}">${p.online ? 'Online' : 'Offline'}</span>
-              </div>
-            `).join('')}
+            ${r.players.map((p) => {
+              // Who can edit this name?
+              //   - Same-device: I host both players, so I can edit either.
+              //   - Multi-device: only my own row.
+              const canEdit = sameDevice || p.id === Game.state.myPlayerId;
+              return `
+                <div class="player-row">
+                  <span class="player-name ${p.id === Game.state.myPlayerId ? 'you' : ''}">${Game.esc(p.name)}</span>
+                  <span style="display:flex; gap:8px; align-items:center;">
+                    ${canEdit ? `
+                      <button class="btn btn-icon btn-small" data-edit-name="${Game.esc(p.id)}"
+                              title="Rename" style="width:32px; height:32px; min-height:32px; font-size:14px;">✎</button>
+                    ` : ''}
+                    <span class="player-status ${p.online ? 'ready' : ''}">${p.online ? 'Online' : 'Offline'}</span>
+                  </span>
+                </div>
+              `;
+            }).join('')}
             ${!sameDevice && r.players.length < 2 ? `
               <div class="player-row text-dim">
                 <span class="player-name">Waiting for partner…</span>
@@ -482,6 +494,30 @@ Game.screens.lobby = {
     if (startBtn && !startBtn.disabled) {
       startBtn.addEventListener('click', () => Game.startRound());
     }
+
+    // Rename buttons. We use a `prompt()` for simplicity — it works on every
+    // browser. If you ever want a fancier modal, replace this block.
+    document.querySelectorAll('[data-edit-name]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const pid = btn.dataset.editName;
+        const room = Game.state.room;
+        const player = room.players.find((p) => p.id === pid);
+        if (!player) return;
+        const newName = prompt('New name:', player.name);
+        if (newName == null) return;            // cancelled
+        const trimmed = newName.trim().slice(0, 20);
+        if (!trimmed || trimmed === player.name) return;
+        player.name = trimmed;
+        // Also update lastUsedName if it was your own name, so creating new
+        // rooms later remembers the change.
+        if (pid === Game.state.myPlayerId) {
+          Game.state.prefs.lastUsedName = trimmed;
+          Game.savePrefs();
+        }
+        Game.persistRoom(true);
+        Game.render();
+      });
+    });
   },
 };
 
