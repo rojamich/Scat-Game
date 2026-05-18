@@ -11,6 +11,27 @@
       "node_modules/**",
       "README.md",
       "**/*.md"
+    ],
+    "headers": [
+      {
+        "//": "Force the service worker and index.html to NEVER be cached by the CDN or browser. Without this, Firebase Hosting caches sw.js for an hour by default, which means phones can keep getting the OLD service worker for up to an hour after you deploy — defeating the whole cache-busting scheme.",
+        "source": "/sw.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/index.html",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/manifest.webmanifest",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      }
     ]
   }
 }
