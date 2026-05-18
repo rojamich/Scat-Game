@@ -94,11 +94,13 @@ Game.joinRoom = async function (code, myName) {
   const snap = await docRef.get();
   if (!snap.exists) throw new Error(`Room ${code} doesn't exist.`);
 
-  const room = snap.data();
+  const room = repairRoom(snap.data());
   Game.addPlayerToRoom(room, {
     id: Game.state.myPlayerId,
     name: myName,
   });
+  // Use set() here because we may have repaired a corrupted players array —
+  // we want the clean shape written back wholesale.
   await docRef.set(room);
 
   attachRoomWatcher(code);
@@ -138,15 +140,16 @@ Game.rejoinLastRoom = async function () {
       Game.render();
       return;
     }
-    // Mark ourselves online again with a per-field update (NOT a whole-doc
-    // write) so we don't overwrite anything the other player did while we
-    // were gone — particularly important if they were judging.
-    const room = snap.data();
-    const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
-    if (meIdx >= 0) {
+    // Mark ourselves online again by writing back the whole `players` array
+    // (NOT a dot-path into an index — that corrupts the array). Other fields
+    // like round/scoring are untouched.
+    const room = repairRoom(snap.data());
+    const me = room.players.find((p) => p.id === Game.state.myPlayerId);
+    if (me) {
+      me.online = true;
+      me.lastSeenAt = Date.now();
       await firestoreDb.collection('rooms').doc(last.code).update({
-        [`players.${meIdx}.online`]: true,
-        [`players.${meIdx}.lastSeenAt`]: Date.now(),
+        players: room.players,
       });
     }
     attachRoomWatcher(last.code);
@@ -267,6 +270,59 @@ function setByPath(obj, path, value) {
 }
 
 /* ============================================================================
+   repairRoom: undo Firestore array-to-map corruption
+   ============================================================================
+   When you update an array element via dot-path like `players.0.online`,
+   Firestore silently converts the array to a map keyed by stringified index.
+   After that, `.find()` / `.map()` / `.forEach()` all fail and the whole app
+   crashes. We hit this in the wild — a previous build used dot-paths on
+   `players`, leaving rooms in this corrupted shape.
+
+   This function detects the corrupted form and converts it back to an array.
+   We call it on every snapshot received, so corrupted rooms self-heal once
+   the host (or any device) writes a clean `players` array back.
+*/
+function repairRoom(room) {
+  if (!room) return room;
+  if (room.players && !Array.isArray(room.players) && typeof room.players === 'object') {
+    // Sort by numeric key so player order stays stable.
+    room.players = Object.keys(room.players)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => room.players[k]);
+  }
+  return room;
+}
+Game._repairRoom = repairRoom;  // exposed so other files can call it after .get()
+
+/* ============================================================================
+   updatePlayerField: change my own player record without breaking the array
+   ============================================================================
+   Use this — NOT updateRoomFields with `players.N.X` paths — for any change
+   to a player record. It writes the whole `players` array as a single field
+   update (so judging in `round.scoring` isn't touched and we don't get
+   write-races on decisions), but it doesn't break the array shape.
+*/
+Game.updatePlayerField = function (playerId, partialPlayer) {
+  const room = Game.state.room;
+  if (!room) return;
+  const idx = room.players.findIndex((p) => p.id === playerId);
+  if (idx < 0) return;
+  Object.assign(room.players[idx], partialPlayer);
+
+  if (Game.isSameDevice()) {
+    saveSameDeviceRoom();
+    return;
+  }
+  if (!firestoreDb) return;
+
+  // Write the whole players array as one field. Other fields are untouched,
+  // so this doesn't conflict with the other player's judging edits.
+  firestoreDb.collection('rooms').doc(room.code).update({
+    players: room.players,
+  }).catch((err) => console.warn('updatePlayerField failed', err));
+};
+
+/* ============================================================================
    ROOM WATCHER: subscribe to Firestore updates for this room
    ============================================================================ */
 
@@ -283,7 +339,7 @@ function attachRoomWatcher(code) {
         Game.leaveRoom();
         return;
       }
-      const incoming = snap.data();
+      const incoming = repairRoom(snap.data());
 
       // Detect a "new round started" event by comparing the round's startedAt
       // timestamp with what we currently have. If they differ, the host just
@@ -358,15 +414,19 @@ function decideScreenFromRoom() {
 Game.leaveRoom = function () {
   if (activeUnsubscribe) { activeUnsubscribe(); activeUnsubscribe = null; }
   const wasSameDevice = Game.isSameDevice();
-  // For multi-device, mark ourselves offline via a per-field update (so we
-  // don't trample any judging state the other player might have just changed).
+  // For multi-device, mark ourselves offline by writing back the whole
+  // `players` array. This avoids two problems at once: (1) it doesn't touch
+  // `round` / `scoring` so we don't race with the other player's judging,
+  // and (2) it doesn't use dot-path indices, which Firestore would convert
+  // the array into a map for.
   if (Game.state.room && !wasSameDevice && firestoreDb) {
     const room = Game.state.room;
-    const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
-    if (meIdx >= 0) {
+    const me = room.players.find((p) => p.id === Game.state.myPlayerId);
+    if (me) {
+      me.online = false;
+      me.lastSeenAt = Date.now();
       firestoreDb.collection('rooms').doc(room.code).update({
-        [`players.${meIdx}.online`]: false,
-        [`players.${meIdx}.lastSeenAt`]: Date.now(),
+        players: room.players,
       }).catch(() => {});
     }
   }
@@ -393,30 +453,20 @@ Game.leaveRoom = function () {
 */
 setInterval(() => {
   if (!Game.state.room || Game.isSameDevice()) return;
-  const room = Game.state.room;
-  const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
-  if (meIdx < 0) return;
-  // Update local state for immediate UI accuracy.
-  room.players[meIdx].lastSeenAt = Date.now();
-  room.players[meIdx].online = true;
-  // And push to Firestore as a per-field update (does NOT clobber anything else).
-  Game.updateRoomFields({
-    [`players.${meIdx}.lastSeenAt`]: Date.now(),
-    [`players.${meIdx}.online`]: true,
+  // updatePlayerField writes the whole players array as one field update —
+  // it neither clobbers judging nor corrupts the array shape (unlike
+  // dot-path updates into array indices).
+  Game.updatePlayerField(Game.state.myPlayerId, {
+    online: true,
+    lastSeenAt: Date.now(),
   });
 }, 20000);
 
 // On page hide (user backgrounded the app), mark offline so partner can see.
-// Also uses field-path updates for the same overwrite-protection reasons.
 document.addEventListener('visibilitychange', () => {
   if (!Game.state.room || Game.isSameDevice() || !firestoreDb) return;
-  const room = Game.state.room;
-  const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
-  if (meIdx < 0) return;
-  room.players[meIdx].online = !document.hidden;
-  room.players[meIdx].lastSeenAt = Date.now();
-  Game.updateRoomFields({
-    [`players.${meIdx}.online`]: !document.hidden,
-    [`players.${meIdx}.lastSeenAt`]: Date.now(),
+  Game.updatePlayerField(Game.state.myPlayerId, {
+    online: !document.hidden,
+    lastSeenAt: Date.now(),
   });
 });

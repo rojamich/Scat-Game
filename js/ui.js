@@ -595,31 +595,49 @@ Game.screens.roomSettings = {
             }).join('')}
           </div>
         </div>
+
+        ${isHost ? `
+          <div class="spacer"></div>
+          <button class="btn btn-primary" data-action="save-settings">
+            Save &amp; return to lobby
+          </button>
+          <div class="text-small text-dim text-center">
+            Changes apply on the next round you start.
+          </div>
+        ` : ''}
       </div>
     `;
   },
   mount() {
-    document.querySelector('[data-action="back"]').addEventListener('click', () => Game.goto('lobby'));
+    document.querySelector('[data-action="back"]').addEventListener('click', () => {
+      // Flush any pending debounced write before leaving.
+      Game.persistRoom(true);
+      Game.goto('lobby');
+    });
 
     if (!Game.isHost()) return; // listeners only matter for the host
 
     const r = Game.state.room;
+
+    // Each control writes immediately (immediate=true) so changes show up on
+    // the partner's phone instantly. We also keep `Game.render()` on toggles
+    // so the UI reflects the new state right away.
     document.getElementById('timerSel').addEventListener('change', (e) => {
       r.settings.roundDuration = Number(e.target.value);
-      Game.persistRoom();
+      Game.persistRoom(true);
     });
     document.getElementById('countSel').addEventListener('change', (e) => {
       r.settings.categoryCount = Number(e.target.value);
-      Game.persistRoom();
+      Game.persistRoom(true);
     });
     document.getElementById('skipToggle').addEventListener('click', () => {
       r.settings.skipQXZ = !r.settings.skipQXZ;
-      Game.persistRoom();
+      Game.persistRoom(true);
       Game.render();
     });
     document.getElementById('pauseToggle').addEventListener('click', () => {
       r.settings.pauseAllowed = !r.settings.pauseAllowed;
-      Game.persistRoom();
+      Game.persistRoom(true);
       Game.render();
     });
     document.querySelectorAll('[data-pack]').forEach((el) => {
@@ -628,10 +646,20 @@ Game.screens.roomSettings = {
         const idx = r.settings.packs.indexOf(id);
         if (idx >= 0) r.settings.packs.splice(idx, 1);
         else r.settings.packs.push(id);
-        Game.persistRoom();
+        Game.persistRoom(true);
         Game.render();
       });
     });
+
+    // Explicit Save button — flushes and returns to lobby with confirmation.
+    const saveBtn = document.querySelector('[data-action="save-settings"]');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', () => {
+        Game.persistRoom(true);
+        Game.toast('Settings saved');
+        Game.goto('lobby');
+      });
+    }
   },
 };
 
