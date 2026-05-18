@@ -77,6 +77,15 @@ body {
   */
   overscroll-behavior: none;
   /*
+    `overflow-x: hidden` + `width: 100%` is a belt-and-suspenders fix for
+    the "page renders zoomed out" bug on some Android PWAs. If any element
+    accidentally pokes past the viewport width, the browser would otherwise
+    shrink the whole page to fit. This clamps the page to viewport width.
+  */
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+  /*
     `padding-top: env(safe-area-inset-top)` keeps content out from under the
     iPhone notch when installed as a PWA.
   */
@@ -505,6 +514,35 @@ label {
   top: 4px;
   right: 4px;
   font-size: 16px;
+}
+
+/* The flag button — sits in the top-left of each answer card. Dim by default
+   so it doesn't fight for attention; turns amber when flagged. */
+.judge-answer-flag {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.25;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+.judge-answer-flag:hover { opacity: 0.6; }
+.judge-answer.flagged .judge-answer-flag {
+  opacity: 1;
+  color: var(--warn);
+}
+.judge-answer.flagged {
+  /* A subtle amber tint on the whole card when flagged. */
+  background: linear-gradient(to bottom right, var(--bg-input), rgba(251, 191, 36, 0.08));
 }
 
 .score-summary {

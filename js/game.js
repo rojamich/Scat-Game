@@ -627,10 +627,25 @@ function startTicker() {
       display.classList.toggle('warn', remaining <= 30 && remaining > 10);
       display.classList.toggle('danger', remaining <= 10);
     }
-    // Audio cue every second from 10 to 1.
-    if (remaining <= 10 && remaining >= 1 && remaining !== lastBeepedSecond && !r.pausedAt) {
-      lastBeepedSecond = remaining;
-      beep(remaining <= 3 ? 880 : 660, 100);
+    // Audio + vibration warnings — staggered so you get plenty of notice to
+    // finish your thought before the buzzer hits.
+    //   - 30s: single soft beep (heads up, halfway to the wire)
+    //   - 15s: single louder beep (start wrapping up)
+    //   - 10..1s: per-second beeps that get higher + louder as the buzzer nears
+    if (!r.pausedAt && remaining !== lastBeepedSecond) {
+      if (remaining === 30) {
+        lastBeepedSecond = remaining;
+        beep(520, 90, 0.3);
+      } else if (remaining === 15) {
+        lastBeepedSecond = remaining;
+        beep(660, 150, 0.5);
+        Game.vibrate(80);
+      } else if (remaining <= 10 && remaining >= 1) {
+        lastBeepedSecond = remaining;
+        const isFinal = remaining <= 3;
+        beep(isFinal ? 880 : 660, isFinal ? 140 : 110, isFinal ? 0.7 : 0.5);
+        if (isFinal) Game.vibrate(40);
+      }
     }
     // Time's up.
     if (remaining === 0 && !r.pausedAt) {

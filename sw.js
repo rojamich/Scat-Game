@@ -21,7 +21,12 @@
   cleared the next time the user loads the app.
 */
 
-const CACHE_VERSION = 'v1';
+// IMPORTANT: bump this number every time you deploy. The service worker will
+// see the new value, clear the old cache, and pull fresh copies of all the
+// files below. Without this, phones can be stuck on an old version even after
+// a deploy. The Game.VERSION constant in app.js should be kept in sync — both
+// are visible from the home screen footer for debugging.
+const CACHE_VERSION = 'v2-2026-05-17';
 const CACHE_NAME = `scategories-${CACHE_VERSION}`;
 
 // Files to cache. We list them explicitly rather than caching everything so

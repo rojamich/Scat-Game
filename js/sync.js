@@ -138,11 +138,17 @@ Game.rejoinLastRoom = async function () {
       Game.render();
       return;
     }
-    // Mark ourselves online again in case the doc has us as offline.
+    // Mark ourselves online again with a per-field update (NOT a whole-doc
+    // write) so we don't overwrite anything the other player did while we
+    // were gone — particularly important if they were judging.
     const room = snap.data();
-    const me = room.players.find((p) => p.id === Game.state.myPlayerId);
-    if (me) { me.online = true; me.lastSeenAt = Date.now(); }
-    await firestoreDb.collection('rooms').doc(last.code).set(room);
+    const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
+    if (meIdx >= 0) {
+      await firestoreDb.collection('rooms').doc(last.code).update({
+        [`players.${meIdx}.online`]: true,
+        [`players.${meIdx}.lastSeenAt`]: Date.now(),
+      });
+    }
     attachRoomWatcher(last.code);
   } catch (err) {
     Game.toast('Could not rejoin. Check your connection.');
@@ -352,14 +358,16 @@ function decideScreenFromRoom() {
 Game.leaveRoom = function () {
   if (activeUnsubscribe) { activeUnsubscribe(); activeUnsubscribe = null; }
   const wasSameDevice = Game.isSameDevice();
-  // For multi-device, mark ourselves offline so the other player sees it.
+  // For multi-device, mark ourselves offline via a per-field update (so we
+  // don't trample any judging state the other player might have just changed).
   if (Game.state.room && !wasSameDevice && firestoreDb) {
     const room = Game.state.room;
-    const me = room.players.find((p) => p.id === Game.state.myPlayerId);
-    if (me) {
-      me.online = false;
-      me.lastSeenAt = Date.now();
-      firestoreDb.collection('rooms').doc(room.code).set(room).catch(() => {});
+    const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
+    if (meIdx >= 0) {
+      firestoreDb.collection('rooms').doc(room.code).update({
+        [`players.${meIdx}.online`]: false,
+        [`players.${meIdx}.lastSeenAt`]: Date.now(),
+      }).catch(() => {});
     }
   }
   if (wasSameDevice) Game.lsRemove('sameDeviceRoom');
@@ -377,24 +385,38 @@ Game.leaveRoom = function () {
 /*
   Every 20 seconds while we're in a room, update our `lastSeenAt`. The other
   player's UI can use this to detect "really gone" vs "just switched apps".
+
+  CRITICAL: this used to call `persistRoom()` (whole-doc write), which would
+  silently overwrite the other player's judging picks if our local copy was
+  even slightly stale. Now we use field-path updates so we only touch our own
+  `lastSeenAt` / `online` and nothing else.
 */
 setInterval(() => {
   if (!Game.state.room || Game.isSameDevice()) return;
-  const me = Game.state.room.players.find((p) => p.id === Game.state.myPlayerId);
-  if (me) {
-    me.lastSeenAt = Date.now();
-    me.online = true;
-    Game.persistRoom();
-  }
+  const room = Game.state.room;
+  const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
+  if (meIdx < 0) return;
+  // Update local state for immediate UI accuracy.
+  room.players[meIdx].lastSeenAt = Date.now();
+  room.players[meIdx].online = true;
+  // And push to Firestore as a per-field update (does NOT clobber anything else).
+  Game.updateRoomFields({
+    [`players.${meIdx}.lastSeenAt`]: Date.now(),
+    [`players.${meIdx}.online`]: true,
+  });
 }, 20000);
 
 // On page hide (user backgrounded the app), mark offline so partner can see.
+// Also uses field-path updates for the same overwrite-protection reasons.
 document.addEventListener('visibilitychange', () => {
   if (!Game.state.room || Game.isSameDevice() || !firestoreDb) return;
   const room = Game.state.room;
-  const me = room.players.find((p) => p.id === Game.state.myPlayerId);
-  if (!me) return;
-  me.online = !document.hidden;
-  me.lastSeenAt = Date.now();
-  Game.persistRoom(true);
+  const meIdx = room.players.findIndex((p) => p.id === Game.state.myPlayerId);
+  if (meIdx < 0) return;
+  room.players[meIdx].online = !document.hidden;
+  room.players[meIdx].lastSeenAt = Date.now();
+  Game.updateRoomFields({
+    [`players.${meIdx}.online`]: !document.hidden,
+    [`players.${meIdx}.lastSeenAt`]: Date.now(),
+  });
 });

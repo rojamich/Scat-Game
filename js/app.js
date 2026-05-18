@@ -14,7 +14,26 @@
   re-paints. There's no other lifecycle to worry about.
 */
 
+// IMPORTANT: bump this when you deploy so the version label updates and you
+// can confirm the new build is actually loaded on each phone. The same value
+// should appear in sw.js (CACHE_VERSION) so the service worker fetches fresh
+// files. Visible on the home screen footer.
+Game.VERSION = 'v2-2026-05-17';
+
 (function () {
+  // When a fresh service worker takes over (because we bumped CACHE_VERSION),
+  // automatically reload the page so the new HTML/JS/CSS replaces the stale
+  // copy already in memory. Without this, users would have to fully close and
+  // reopen the PWA after every deploy.
+  let reloadedForNewSW = false;
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadedForNewSW) return;
+      reloadedForNewSW = true;
+      location.reload();
+    });
+  }
+
   // Wait for the DOM to be ready so #app exists.
   function init() {
     Game.initSync();

@@ -17,8 +17,12 @@
     The viewport meta tag tells mobile browsers "render this at the phone's real
     width, don't pretend to be a desktop." Without this, everything looks tiny.
     `viewport-fit=cover` lets us draw under the iPhone notch / home indicator.
+    `minimum-scale=1` forces the initial render to be at 100% (some Android PWAs
+    were starting zoomed out, requiring a pinch to read text — this fixes that).
+    We deliberately allow zoom up to 5x by NOT setting `maximum-scale` or
+    `user-scalable=no`, so accessibility / squinting still works.
   -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, viewport-fit=cover">
 
   <!--
     `theme-color` colors the phone's status bar / browser chrome to match the app.

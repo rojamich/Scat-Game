@@ -202,6 +202,108 @@ Game.toggleAnswerInvalid = function (catIdx, playerId) {
   Game.render();
 };
 
+// Toggle a "questionable" flag on an answer. The flag doesn't change scoring
+// by itself — it just gets included in the chatbot prompt so the AI gives
+// that answer extra scrutiny. Either player can flag any answer.
+Game.toggleAnswerFlag = function (catIdx, playerId) {
+  const dec = getDecision(catIdx);
+  const newFlagged = !(dec.flagged && dec.flagged[playerId]);
+  Game.updateRoomFields({
+    [`round.scoring.decisions.${catIdx}.flagged.${playerId}`]: newFlagged,
+  });
+  Game.render();
+};
+
+/* ============================================================================
+   IMPORT CHATBOT JUDGMENT: parse the chatbot's reply, apply winners in bulk
+   ============================================================================
+   The chatbot's reply has one line per category:
+       1. WINNER: Mike — Reason
+       3. WINNER: NONE — Reason
+   We parse each line, match the winner name (case-insensitive) to a player,
+   and update decisions in bulk. NONE means clear all winners for that
+   category. Unknown / unmatched names get reported back to the user.
+*/
+Game.applyChatbotJudgment = function (rawText) {
+  if (!rawText || !Game.state.room) return;
+  const room = Game.state.room;
+  const r = room.round;
+  if (!r || !r.scoring) return;
+
+  // Build a map of lowercased player names → playerId for matching.
+  const nameToId = {};
+  room.players.forEach((p) => { nameToId[p.name.toLowerCase().trim()] = p.id; });
+
+  // Match lines like "5. WINNER: Mike — reason" or "5. WINNER: NONE - reason"
+  // or "5: WINNER: Mike — reason". Tolerant of various dashes and punctuation.
+  const lineRegex = /^\s*(\d+)\s*[.:)]\s*WINNER\s*:\s*([^—\-–]+?)\s*[—\-–]/gim;
+  const updates = {};
+  const results = { applied: 0, none: 0, unknown: [], skipped: [] };
+
+  let match;
+  while ((match = lineRegex.exec(rawText)) !== null) {
+    const catNum = Number(match[1]);
+    const catIdx = catNum - 1;
+    if (catIdx < 0 || catIdx >= r.categories.length) continue;
+
+    const rawWinner = match[2].trim().toLowerCase().replace(/["'.]/g, '');
+
+    if (rawWinner === 'none' || rawWinner === 'no one' || rawWinner === 'neither') {
+      // Clear all winners for this category.
+      room.players.forEach((p) => {
+        updates[`round.scoring.decisions.${catIdx}.winners.${p.id}`] = false;
+      });
+      results.none++;
+      results.applied++;
+      continue;
+    }
+
+    if (rawWinner === 'tie' || rawWinner === 'both') {
+      // Even though the prompt asked for no ties, the chatbot might still tie.
+      // Treat as "no winner" — user can manually pick afterward if they want.
+      room.players.forEach((p) => {
+        updates[`round.scoring.decisions.${catIdx}.winners.${p.id}`] = false;
+      });
+      results.skipped.push(`Category ${catNum}: TIE (manual pick needed)`);
+      continue;
+    }
+
+    // Try to match the winner name. Allow partial matches in case the chatbot
+    // shortened a name (e.g. "Waggle" matching "Waggle Bottom").
+    const winnerId =
+      nameToId[rawWinner] ||
+      Object.keys(nameToId).find((n) => n.startsWith(rawWinner) || rawWinner.startsWith(n));
+    const winnerPlayerId = typeof winnerId === 'string' && winnerId.includes('_')
+      ? winnerId
+      : nameToId[winnerId];
+
+    if (!winnerPlayerId) {
+      results.unknown.push(`Category ${catNum}: "${match[2].trim()}"`);
+      continue;
+    }
+
+    // Apply: this player wins, everyone else loses for this category.
+    room.players.forEach((p) => {
+      updates[`round.scoring.decisions.${catIdx}.winners.${p.id}`] = (p.id === winnerPlayerId);
+    });
+    results.applied++;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    Game.toast('No "N. WINNER: ..." lines found. Paste the full chatbot reply.');
+    return;
+  }
+
+  Game.updateRoomFields(updates);
+  Game.render();
+
+  // Tell the user what happened.
+  const messages = [`Applied ${results.applied} categor${results.applied === 1 ? 'y' : 'ies'}`];
+  if (results.unknown.length) messages.push(`Unknown name${results.unknown.length > 1 ? 's' : ''}: ${results.unknown.length}`);
+  if (results.skipped.length) messages.push(`Ties skipped: ${results.skipped.length}`);
+  Game.toast(messages.join(' · '), 4000);
+};
+
 /* ============================================================================
    COPY CHATBOT PROMPT
    ============================================================================ */
@@ -211,21 +313,42 @@ Game.buildChatbotPrompt = function () {
   const players = Game.state.room.players;
   const lines = [];
 
-  lines.push(`You are judging a Scategories round.`);
+  // Gather flagged-by-opponent answers so we can call them out for extra scrutiny.
+  // Format we surface to the chatbot: "Flag: Mike answered X for category 5 — please verify."
+  const flagged = [];
+  r.categories.forEach((cat, idx) => {
+    const dec = (r.scoring && r.scoring.decisions && r.scoring.decisions[idx]) || {};
+    players.forEach((p) => {
+      if (dec.flagged && dec.flagged[p.id]) {
+        flagged.push({ idx, name: p.name, ans: getAnswer(p.id, idx) || '(blank)' });
+      }
+    });
+  });
+
+  lines.push(`You are the official judge for a Scategories round.`);
   lines.push(`The letter is: ${r.letter}`);
   lines.push('');
   lines.push(`Players: ${players.map((p) => p.name).join(' and ')}`);
   lines.push('');
-  lines.push(`For each numbered category, pick the WINNER (one player's name, "TIE", or "NONE" if nothing fits) and give a one-line reason.`);
+  lines.push(`For each numbered category, pick ONE winner — a single player's name, or "NONE" if no one deserves the point. NEVER reply with "TIE": if both answers are valid, pick whichever you think is stronger and explain why in one line.`);
+  lines.push('');
   lines.push(`Rules:`);
   lines.push(`- An answer must start with "${r.letter}" (ignore "A", "An", "The" prefixes).`);
-  lines.push(`- An invalid answer still beats a blank one.`);
+  lines.push(`- VERIFY answers are actually real things — don't trust an answer just because it sounds plausible. If a player invented a word or proper noun that doesn't exist (e.g. a fake song title, made-up celebrity, non-existent dish), call it out and treat it as invalid.`);
+  lines.push(`- A descriptive adjective doesn't make an answer valid: "White jacket" is NOT a valid answer for "Something you wear" when the letter is W — the noun (jacket) doesn't start with W. But "Watermelon salad" IS valid for "A salad ingredient" because the answer's defining noun starts with W.`);
+  lines.push(`- An invalid answer still beats a blank one — the player at least tried.`);
   lines.push(`- Identical answers cancel out — winner is "NONE".`);
-  lines.push(`- If you can't decide between two valid answers, "TIE" gives both a point.`);
-  lines.push(`- Be lenient: creative interpretations of a category are fine.`);
+  lines.push(`- Be reasonable: creative-but-real interpretations of a category are fine.`);
+  if (flagged.length > 0) {
+    lines.push('');
+    lines.push(`⚑ The opposing player flagged these answers as questionable. Scrutinize them especially carefully:`);
+    flagged.forEach((f) => {
+      lines.push(`   - Category ${f.idx + 1}: ${f.name} answered "${f.ans}"`);
+    });
+  }
   lines.push('');
-  lines.push(`Format your reply as:`);
-  lines.push(`1. WINNER: [name|TIE|NONE] — [reason]`);
+  lines.push(`REPLY FORMAT (one line per category, exactly as shown — no markdown, no extra text):`);
+  lines.push(`1. WINNER: <player name or NONE> — <one-line reason>`);
   lines.push('');
   lines.push(`---`);
   lines.push('');
@@ -369,18 +492,26 @@ Game.screens.judge = {
           <div class="round-letter" style="display:inline-block;">${Game.esc(r.letter)}</div>
         </div>
 
-        <div class="card text-small text-dim" id="promptHelp" style="display:none;">
-          Tap 📋 to copy a prompt for ChatGPT / Claude. Paste their response and
-          tap an answer below to mark winners.
-          <textarea class="prompt-area mt-8" readonly id="promptArea">${Game.esc(Game.buildChatbotPrompt())}</textarea>
+        <div class="card text-small" id="promptHelp" style="display:none;">
+          <div class="text-bold mb-8">1. Copy the prompt</div>
+          <textarea class="prompt-area" readonly id="promptArea">${Game.esc(Game.buildChatbotPrompt())}</textarea>
           <button class="btn btn-small btn-primary mt-8" data-action="copy-prompt" style="width:100%;">
             Copy to clipboard
           </button>
+          <div class="text-bold mt-16 mb-8">2. Paste the chatbot reply here</div>
+          <textarea class="prompt-area" id="judgeImport" placeholder="1. WINNER: Mike — Reason&#10;2. WINNER: NONE — Reason&#10;..." style="min-height:120px;"></textarea>
+          <button class="btn btn-small btn-primary mt-8" data-action="apply-judgment" style="width:100%;">
+            Apply judgment
+          </button>
+          <div class="text-dim mt-8">
+            This auto-fills winners based on the chatbot's reply. You can still tap any answer to override afterward.
+          </div>
         </div>
 
         <div class="text-small text-dim text-center">
-          Tap an answer to toggle winner. Long-press to mark invalid.<br>
-          Green = winner. Strikethrough = invalid. Yellow border = duplicate.
+          <strong>Tap</strong> = mark winner ·
+          <strong>Long-press</strong> = mark invalid ·
+          <strong>⚑</strong> = flag as questionable
         </div>
 
         <div class="mt-8">
@@ -394,6 +525,7 @@ Game.screens.judge = {
                     const ans = getAnswer(p.id, catIdx);
                     const isWinner = !!dec.winners[p.id];
                     const isInvalid = !!dec.invalid[p.id];
+                    const isFlagged = !!(dec.flagged && dec.flagged[p.id]);
                     const isEmpty = !ans;
                     const isDup = !!dec.duplicate && !isEmpty;
                     const classes = [
@@ -402,11 +534,14 @@ Game.screens.judge = {
                       isInvalid ? 'invalid' : '',
                       isEmpty ? 'empty' : '',
                       isDup ? 'duplicate' : '',
+                      isFlagged ? 'flagged' : '',
                     ].filter(Boolean).join(' ');
                     const tag = isWinner ? '✓' : isDup ? '=' : isInvalid ? '✗' : '';
                     return `
                       <div class="${classes}"
                            data-cat="${catIdx}" data-pid="${Game.esc(p.id)}">
+                        <button class="judge-answer-flag" data-flag-cat="${catIdx}" data-flag-pid="${Game.esc(p.id)}"
+                                title="Flag as questionable" aria-label="Flag">⚑</button>
                         <div class="judge-answer-name">${Game.esc(p.name)}</div>
                         <div class="judge-answer-text">${Game.esc(ans || '(blank)')}</div>
                         ${tag ? `<div class="judge-answer-tag">${tag}</div>` : ''}
@@ -434,8 +569,33 @@ Game.screens.judge = {
     const copyBtn = document.querySelector('[data-action="copy-prompt"]');
     if (copyBtn) copyBtn.addEventListener('click', () => Game.copyChatbotPrompt());
 
+    // The "Apply judgment" button reads the textarea and bulk-applies winners.
+    const applyBtn = document.querySelector('[data-action="apply-judgment"]');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', () => {
+        const ta = document.getElementById('judgeImport');
+        if (!ta) return;
+        Game.applyChatbotJudgment(ta.value);
+      });
+    }
+
     document.querySelector('[data-action="finalize"]').addEventListener('click', () => {
       Game.finalizeScores();
+    });
+
+    // Flag buttons. Wired separately and stop propagation so they don't also
+    // trigger the parent answer's tap (which would toggle winner).
+    document.querySelectorAll('[data-flag-cat]').forEach((flagBtn) => {
+      flagBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const catIdx = Number(flagBtn.dataset.flagCat);
+        const pid = flagBtn.dataset.flagPid;
+        Game.toggleAnswerFlag(catIdx, pid);
+        Game.vibrate(20);
+      });
+      // Also stop pointerdown so the long-press detection on the parent
+      // doesn't see this as starting a press on the answer.
+      flagBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
     });
 
     // Tap = toggle winner. Long-press = toggle invalid.

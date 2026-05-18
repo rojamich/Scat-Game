@@ -182,6 +182,10 @@ Game.screens.home = {
           <button class="btn btn-ghost btn-small" data-action="history">History</button>
           <button class="btn btn-ghost btn-small" data-action="settings">Settings</button>
         </div>
+
+        <div class="text-small text-dim text-center mt-16" style="opacity:0.6;">
+          ${Game.esc(Game.VERSION || 'dev')}
+        </div>
       </div>
     `;
   },
