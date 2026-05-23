@@ -419,12 +419,13 @@ label {
   background: var(--bg-elevated);
   border-radius: var(--radius);
   padding: 12px 14px;
-  /* When the input gets focused, the browser auto-scrolls it into view. With
-     a sticky round-header sitting above (≈80px), naive scrolling would put
-     the input UNDER the header. `scroll-margin-top` tells the browser to
-     leave that much room above the input when scrolling — so the focused
-     field stays visible instead of getting hidden / pushed offscreen. */
-  scroll-margin-top: 100px;
+  /* Just a small breathing room above the input when the browser DOES decide
+     to scroll it into view. We deliberately keep this small so already-visible
+     inputs don't get yanked into the centre of the screen on focus — the
+     viewport meta `interactive-widget=resizes-content` does most of the work
+     here by resizing the layout when the keyboard appears instead of forcing
+     a scroll. */
+  scroll-margin-top: 20px;
   scroll-margin-bottom: 20px;
   display: flex;
   flex-direction: column;
@@ -496,13 +497,55 @@ label {
 .judge-answer.duplicate {
   border-color: var(--warn);
 }
+/* A header row inside each answer card that holds the player name on the left
+   and the small control buttons (flag, mark-invalid) on the right. Putting
+   them on their own row means the buttons can never overlap the player name. */
+.judge-answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+  min-height: 22px;
+}
 .judge-answer-name {
   font-size: 11px;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 4px;
+  /* Truncate long names instead of letting them push the icons off-screen. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 }
+.judge-answer-controls {
+  display: inline-flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+/* Tiny icon-only buttons (flag, invalid). Dim by default; light up when "on". */
+.judge-icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.judge-icon-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.judge-icon-btn.on { background: var(--warn); color: #2a1f00; }
+/* The invalid button uses red instead of amber when active. */
+.judge-icon-btn[data-invalid-cat].on { background: var(--bad); color: white; }
 .judge-answer-text {
   font-size: 16px;
   word-break: break-word;
@@ -516,30 +559,6 @@ label {
   font-size: 16px;
 }
 
-/* The flag button — sits in the top-left of each answer card. Dim by default
-   so it doesn't fight for attention; turns amber when flagged. */
-.judge-answer-flag {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 14px;
-  opacity: 0.25;
-  color: var(--text);
-  border-radius: 6px;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
-  font-family: inherit;
-}
-.judge-answer-flag:hover { opacity: 0.6; }
-.judge-answer.flagged .judge-answer-flag {
-  opacity: 1;
-  color: var(--warn);
-}
 .judge-answer.flagged {
   /* A subtle amber tint on the whole card when flagged. */
   background: linear-gradient(to bottom right, var(--bg-input), rgba(251, 191, 36, 0.08));

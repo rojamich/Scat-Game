@@ -509,9 +509,7 @@ Game.screens.judge = {
         </div>
 
         <div class="text-small text-dim text-center">
-          <strong>Tap</strong> = mark winner ·
-          <strong>Long-press</strong> = mark invalid ·
-          <strong>⚑</strong> = flag as questionable
+          <strong>Tap card</strong> = winner · <strong>⚑</strong> = flag · <strong>✗</strong> = invalid (tap again to undo)
         </div>
 
         <div class="mt-8">
@@ -536,15 +534,24 @@ Game.screens.judge = {
                       isDup ? 'duplicate' : '',
                       isFlagged ? 'flagged' : '',
                     ].filter(Boolean).join(' ');
-                    const tag = isWinner ? '✓' : isDup ? '=' : isInvalid ? '✗' : '';
+                    // Status badge (read-only) for winners + duplicates.
+                    const statusTag = isWinner ? '✓' : isDup ? '=' : '';
                     return `
                       <div class="${classes}"
                            data-cat="${catIdx}" data-pid="${Game.esc(p.id)}">
-                        <button class="judge-answer-flag" data-flag-cat="${catIdx}" data-flag-pid="${Game.esc(p.id)}"
-                                title="Flag as questionable" aria-label="Flag">⚑</button>
-                        <div class="judge-answer-name">${Game.esc(p.name)}</div>
+                        <div class="judge-answer-header">
+                          <span class="judge-answer-name">${Game.esc(p.name)}</span>
+                          <span class="judge-answer-controls">
+                            <button class="judge-icon-btn ${isFlagged ? 'on' : ''}"
+                                    data-flag-cat="${catIdx}" data-flag-pid="${Game.esc(p.id)}"
+                                    title="Flag as questionable" aria-label="Flag">⚑</button>
+                            <button class="judge-icon-btn ${isInvalid ? 'on' : ''}"
+                                    data-invalid-cat="${catIdx}" data-invalid-pid="${Game.esc(p.id)}"
+                                    title="Mark invalid" aria-label="Invalid">✗</button>
+                          </span>
+                        </div>
                         <div class="judge-answer-text">${Game.esc(ans || '(blank)')}</div>
-                        ${tag ? `<div class="judge-answer-tag">${tag}</div>` : ''}
+                        ${statusTag ? `<div class="judge-answer-tag">${statusTag}</div>` : ''}
                       </div>
                     `;
                   }).join('')}
@@ -556,7 +563,10 @@ Game.screens.judge = {
 
         <div class="spacer"></div>
 
-        <button class="btn btn-primary" data-action="finalize">Tally scores</button>
+        <div class="btn-row">
+          <button class="btn btn-ghost btn-small" data-action="reset-judging">↻ Re-classify</button>
+          <button class="btn btn-primary" data-action="finalize">Tally scores</button>
+        </div>
       </div>
     `;
   },
@@ -583,39 +593,85 @@ Game.screens.judge = {
       Game.finalizeScores();
     });
 
-    // Flag buttons. Wired separately and stop propagation so they don't also
-    // trigger the parent answer's tap (which would toggle winner).
-    document.querySelectorAll('[data-flag-cat]').forEach((flagBtn) => {
-      flagBtn.addEventListener('click', (e) => {
+    // Flag + invalid buttons. Both stop propagation so they don't ALSO
+    // trigger the parent card's tap-to-toggle-winner behavior or its
+    // long-press timer.
+    const wireIconBtn = (btn, catAttr, pidAttr, action) => {
+      btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const catIdx = Number(flagBtn.dataset.flagCat);
-        const pid = flagBtn.dataset.flagPid;
-        Game.toggleAnswerFlag(catIdx, pid);
+        const catIdx = Number(btn.dataset[catAttr]);
+        const pid = btn.dataset[pidAttr];
+        action(catIdx, pid);
         Game.vibrate(20);
       });
-      // Also stop pointerdown so the long-press detection on the parent
-      // doesn't see this as starting a press on the answer.
-      flagBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    };
+    document.querySelectorAll('[data-flag-cat]').forEach((btn) => {
+      wireIconBtn(btn, 'flagCat', 'flagPid', (c, p) => Game.toggleAnswerFlag(c, p));
+    });
+    document.querySelectorAll('[data-invalid-cat]').forEach((btn) => {
+      wireIconBtn(btn, 'invalidCat', 'invalidPid', (c, p) => Game.toggleAnswerInvalid(c, p));
     });
 
+    // "Re-classify" — wipes all current decisions and re-runs the auto
+    // rules. Useful as an escape hatch if things got into a weird state
+    // (e.g. an accidental long-press marked something invalid in an older
+    // build and the user can't unwind it).
+    const resetBtn = document.querySelector('[data-action="reset-judging"]');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (!confirm('Clear all winner/invalid/flag marks and start over?')) return;
+        const r = Game.state.room.round;
+        r.scoring.decisions = {};
+        autoClassify();
+        autoDeriveWinners();
+        Game.persistRoom(true);
+        Game.render();
+      });
+    }
+
     // Tap = toggle winner. Long-press = toggle invalid.
+    //
+    // CRITICAL: we must cancel the long-press timer when the finger MOVES,
+    // not only when it lifts. Without that, holding-then-scrolling would
+    // fire long-press after 500ms even though the user is just trying to
+    // scroll the page — which is exactly how valid answers were getting
+    // silently marked invalid in earlier rounds.
     document.querySelectorAll('.judge-answer').forEach((el) => {
       let pressTimer = null;
       let longPressed = false;
+      let startX = 0;
+      let startY = 0;
+      const MOVE_THRESHOLD = 10;   // pixels — anything more is "scrolling"
       const catIdx = Number(el.dataset.cat);
       const pid = el.dataset.pid;
 
-      el.addEventListener('pointerdown', () => {
+      const cancel = () => {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      };
+
+      el.addEventListener('pointerdown', (e) => {
         longPressed = false;
+        startX = e.clientX;
+        startY = e.clientY;
         pressTimer = setTimeout(() => {
           longPressed = true;
           Game.toggleAnswerInvalid(catIdx, pid);
           Game.vibrate(30);
         }, 500);
       });
-      const cancel = () => { clearTimeout(pressTimer); };
+
+      el.addEventListener('pointermove', (e) => {
+        if (!pressTimer) return;
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+        if (dx > MOVE_THRESHOLD || dy > MOVE_THRESHOLD) cancel();
+      });
+
       el.addEventListener('pointerup', () => {
         clearTimeout(pressTimer);
+        pressTimer = null;
         if (!longPressed) Game.toggleAnswerWinner(catIdx, pid);
       });
       el.addEventListener('pointerleave', cancel);
