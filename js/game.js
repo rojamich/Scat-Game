@@ -48,15 +48,26 @@ function pickLetter(room) {
 
   Strategy:
     1. Filter the master bank to enabled packs and remove user-hidden ones
-       and any that were used in the last 30 rounds (avoids repeats).
+       AND any that have been used recently. "Recently" combines two lists:
+         - room.recentCategoryTexts (last 50 in THIS room)
+         - prefs.recentlySeenCategories (last 100 across ALL games on THIS
+           device)
+       The cross-session list is what stops the same dozen showing up in
+       every game — even a brand-new room won't repeat what the host just
+       saw an hour ago.
     2. Group surviving categories by their PRIMARY tag (first tag in the list).
-    3. Round-robin pick from groups until we have N. This gives a mix even
-       when a user has, say, 100 "food" categories enabled but only 10
+    3. Round-robin pick from groups until we have N. This gives a balanced mix
+       even when a user has, say, 100 "food" categories enabled but only 10
        "transport" ones.
 */
 function pickCategories(room, n) {
   const hidden = new Set(Game.state.prefs.hiddenCategoryTexts || []);
-  const recent = new Set((room.recentCategoryTexts || []).slice(-30));
+  // Both lists merged into one "recently seen" set. Room takes priority
+  // (last 50 of this game) but we also fold in the device-wide last-100.
+  const recent = new Set([
+    ...(room.recentCategoryTexts || []).slice(-50),
+    ...(Game.state.prefs.recentlySeenCategories || []).slice(-100),
+  ]);
 
   // The host's custom categories ride along on every round. We tag them
   // 'custom' so the balanced-mix picker treats them as their own group —
@@ -71,13 +82,22 @@ function pickCategories(room, n) {
     .concat(customs)
     .filter((c) => !hidden.has(c.text) && !recent.has(c.text));
 
-  // If filters left us too small a pool, ignore the recent-used filter.
+  // If filters left us too small a pool to balance, relax the device-wide
+  // recent list first (keep the room-recent filter — repeats within ONE
+  // game are the most annoying kind).
+  if (pool.length < n * 2) {
+    const roomRecent = new Set((room.recentCategoryTexts || []).slice(-50));
+    pool = Game.filterCategoriesByPacks(room.settings.packs)
+      .concat(customs)
+      .filter((c) => !hidden.has(c.text) && !roomRecent.has(c.text));
+  }
+  // Still not enough? Ignore the room-recent filter too.
   if (pool.length < n) {
     pool = Game.filterCategoriesByPacks(room.settings.packs)
       .concat(customs)
       .filter((c) => !hidden.has(c.text));
   }
-  // Still not enough? Just shuffle the whole bank.
+  // Worst case (huge custom-hidden list etc.): just shuffle the whole bank.
   if (pool.length < n) pool = Game.CATEGORIES.slice().concat(customs);
 
   // Group by primary tag for balance.
@@ -156,6 +176,14 @@ Game.startRound = function () {
 
   // Clear my local pending answers from any previous round.
   Game.state.myAnswers = {};
+
+  // Record these categories in the device-wide "recently seen" list so future
+  // rounds (even in different rooms) don't repeat them. Capped at 100 — past
+  // that the oldest get cycled out so we never permanently exhaust the bank.
+  // Only the host writes here, since they're the one calling pickCategories.
+  const seen = (Game.state.prefs.recentlySeenCategories || []).concat(categories);
+  Game.state.prefs.recentlySeenCategories = seen.slice(-100);
+  Game.savePrefs();
 
   Game.persistRoom(true);
   Game.goto('round');

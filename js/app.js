@@ -18,7 +18,7 @@
 // can confirm the new build is actually loaded on each phone. The same value
 // should appear in sw.js (CACHE_VERSION) so the service worker fetches fresh
 // files. Visible on the home screen footer.
-Game.VERSION = 'v4-2026-05-17';
+Game.VERSION = 'v5-2026-05-23';
 
 (function () {
   // When a fresh service worker takes over (because we bumped CACHE_VERSION),

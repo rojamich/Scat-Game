@@ -127,6 +127,11 @@ function loadPreferences() {
       skipQXZ: true,
       hiddenCategoryTexts: [],   // texts user has reported / hidden
       customCategories: [],      // your own categories — strings, e.g. "A Star Wars character"
+      // Categories shown to us in recent rounds ACROSS all sessions / rooms /
+      // games. Lives on this device only. Helps the picker rotate through
+      // the bank instead of recycling the same dozen game after game.
+      // Length-capped to 100 (see pickCategories in game.js).
+      recentlySeenCategories: [],
     },
     Game.lsGet('prefs', {})
   );
